@@ -143,6 +143,10 @@ lib/                        # Flutter UI
 3. Tap **Index in ChromaDB**
 4. Ask questions — LangGraph will retrieve relevant chunks automatically
 
+## Run 24/7 with a public link
+
+See **[DEPLOY.md](DEPLOY.md)** — deploy the API to Render (or similar) and Flutter web to GitHub Pages / Netlify so anyone can open a URL anytime.
+
 ## Host on GitHub
 
 ### What is **not** uploaded (kept local)
