@@ -18,8 +18,12 @@ _CHAT_STOP_SEQUENCES = [
     "[INST]",
     "[/USER]",
     "[USER]",
+    "[/USR]",
+    "[USR]",
     "[/ASSIST]",
     "[ASSIST]",
+    "[/ASS]",
+    "[ASS]",
     "</s>",
     "<|endoftext|>",
     "<|user|>",
@@ -28,8 +32,22 @@ _CHAT_STOP_SEQUENCES = [
 ]
 
 _TEMPLATE_TOKEN_PATTERN = re.compile(
-    r"\[/INST\]|\[INST\]|\[/USER\]|\[USER\]|\[/ASSIST\]|\[ASSIST\]|<\|[^|]+\|>|</s>",
+    r"\[/INST\]|\[INST\]|\[/USER\]|\[USER\]|\[/USR\]|\[USR\]|"
+    r"\[/ASSIST\]|\[ASSIST\]|\[/ASS\]|\[ASS\]|<\|[^|]+\|>|</s>",
     re.IGNORECASE,
+)
+
+_SYSTEM_PROMPT_BASE = (
+    "You are a helpful AI assistant for a chat app backed by LangGraph, ChromaDB, "
+    "and Hugging Face.\n"
+    "Important: LangGraph here means LangChain's library for building stateful AI "
+    "agent workflows (retrieve context, then generate an answer). It is NOT a "
+    "neural machine translation system.\n"
+    "Answer concisely and factually. If you lack context, say so briefly instead "
+    "of inventing facts. Reply only in plain text. Never output template tokens "
+    "such as [/INST], [/USER], [/USR], [/ASS], or role labels. Do not repeat or "
+    "quote the user's message. Do not paste the knowledge base verbatim or use "
+    "phrases like 'Generate according to'. Synthesize a helpful answer."
 )
 
 _GENERATE_ACCORDING_PATTERN = re.compile(
@@ -88,23 +106,31 @@ class HuggingFaceService:
         context: str = "",
         history: list[dict[str, str]] | None = None,
         locale: str = "en",
+        require_context: bool = False,
     ) -> str:
         if not self._chat_client:
-            return _fallback_chat(user_message, context)
+            return _demo_mode_message(user_message, context)
 
-        system = (
-            "You are a helpful AI assistant. Reply only with your answer in plain text. "
-            "Never output template tokens such as [/INST], [/USER], [USER], or role labels. "
-            "Do not repeat or quote the user's message. Do not paste the knowledge base verbatim "
-            "or use phrases like 'Generate according to'. Synthesize a helpful answer."
-        )
+        system = _SYSTEM_PROMPT_BASE
         if context.strip():
             system += (
-                f"\n\nRelevant knowledge (use only if it helps answer the question):\n"
+                f"\n\nRelevant knowledge (answer ONLY from this text; do not invent facts):\n"
                 f"{context}"
             )
+            if require_context:
+                system += (
+                    "\n\nAnswer the user's question directly in clear prose (2–5 sentences). "
+                    "Do not ask follow-up questions. "
+                    "If the knowledge above does not answer the question, "
+                    "reply with exactly: NO_KNOWLEDGE"
+                )
+        elif require_context:
+            system += "\n\nNo knowledge was retrieved. Reply with exactly: NO_KNOWLEDGE"
         else:
-            system += "\n\nNo knowledge-base context was retrieved for this message."
+            system += (
+                "\n\nNo knowledge-base context was retrieved. You may answer from general "
+                "knowledge for open-ended or creative requests only."
+            )
 
         lang = self._LOCALE_NAMES.get(locale, locale)
         if locale and locale != "en":
@@ -118,13 +144,18 @@ class HuggingFaceService:
         try:
             raw = self._chat_completion(messages)
             cleaned = _sanitize_chat_output(raw, user_message=user_message)
+            if cleaned.strip().upper() == "NO_KNOWLEDGE":
+                return ""
             if cleaned:
                 return cleaned
             logger.warning("HF returned empty after sanitization")
-            return _fallback_chat(user_message, context)
+            return _api_error_message(e=None)
         except HfHubHTTPError as e:
             logger.warning("HF chat failed: %s", e)
-            return _fallback_chat(user_message, context)
+            return _api_error_message(e)
+        except Exception as e:
+            logger.warning("HF chat unexpected error: %s", e)
+            return _api_error_message(e)
 
     def _chat_completion(self, messages: list[dict[str, str]]) -> str:
         """Call HF chat API with stop sequences; retry without optional params if needed."""
@@ -200,6 +231,8 @@ def _sanitize_chat_output(text: str, user_message: str | None = None) -> str:
         sentences = re.split(r"(?<=[.!?])\s+", cleaned)
         cleaned = sentences[0].strip() if sentences else cleaned[:200]
 
+    cleaned = _collapse_repeated_paragraphs(cleaned)
+
     return cleaned.strip()
 
 
@@ -212,7 +245,12 @@ def _remove_user_template_leaks(text: str) -> str:
         # Trailing injections like "[/USER] Remove this"
         if len(tail) < 200:
             t = t[:last].strip()
-    t = re.sub(r"^(?:\[/USER\]|\[/INST\]|\[USER\]|\[INST\])\s*", "", t, flags=re.IGNORECASE)
+    t = re.sub(
+        r"^(?:\[/USER\]|\[/USR\]|\[/INST\]|\[USER\]|\[USR\]|\[INST\])\s*",
+        "",
+        t,
+        flags=re.IGNORECASE,
+    )
     return t.strip()
 
 
@@ -266,6 +304,25 @@ def _looks_like_inst_loop(text: str) -> bool:
     return bool(re.search(r"(\b\w+\b\s*){1,5}\[/INST\]", text, re.IGNORECASE))
 
 
+def _collapse_repeated_paragraphs(text: str) -> str:
+    """Drop consecutive paragraphs that are identical or near-duplicates."""
+    paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
+    if len(paragraphs) <= 1:
+        return text.strip()
+
+    kept: list[str] = []
+    for para in paragraphs:
+        normalized = re.sub(r"\s+", " ", para).strip().lower()
+        if kept:
+            prev = re.sub(r"\s+", " ", kept[-1]).strip().lower()
+            if normalized == prev or (
+                len(normalized) > 40 and normalized[:80] == prev[:80]
+            ):
+                continue
+        kept.append(para)
+    return "\n\n".join(kept)
+
+
 def _is_degenerate_repetition(text: str) -> bool:
     """True when the same 1–3 word phrase repeats many times."""
     words = text.split()
@@ -278,6 +335,13 @@ def _is_degenerate_repetition(text: str) -> bool:
 
 
 def _flatten_embedding(result: Any) -> list[float]:
+    try:
+        import numpy as np
+
+        if isinstance(result, np.ndarray):
+            return result.flatten().astype(float).tolist()
+    except ImportError:
+        pass
     if isinstance(result, list):
         if result and isinstance(result[0], list):
             return [float(x) for x in result[0]]
@@ -310,16 +374,27 @@ def _fallback_embedding(text: str, dim: int = 384) -> list[float]:
     return [v / norm for v in vec]
 
 
-def _fallback_chat(user_message: str, context: str) -> str:
+def _demo_mode_message(user_message: str, context: str) -> str:
     if context.strip():
         return (
-            f"[Demo mode — set HUGGINGFACE_API_KEY in backend/.env]\n\n"
-            f"Based on retrieved context, here's a draft answer to: "
-            f"\"{user_message[:120]}\"\n\n"
-            f"Top context snippet: {context[:300]}..."
+            "Hugging Face is not configured. Add HUGGINGFACE_API_KEY to backend/.env "
+            "and restart the server from the backend folder.\n\n"
+            f"Retrieved context for \"{user_message[:120]}\":\n{context[:400]}..."
         )
     return (
-        "[Demo mode — set HUGGINGFACE_API_KEY in backend/.env]\n\n"
-        f"You asked: {user_message}\n\n"
-        "Configure Hugging Face to get full LLM responses powered by LangGraph + ChromaDB."
+        "Hugging Face is not configured. Add HUGGINGFACE_API_KEY to backend/.env "
+        "and restart the server (cd backend && python run.py).\n\n"
+        f"You asked: {user_message}"
+    )
+
+
+def _api_error_message(e: BaseException | None) -> str:
+    detail = str(e).strip() if e else "empty model response"
+    if len(detail) > 200:
+        detail = detail[:200] + "..."
+    return (
+        "The Hugging Face API could not complete this reply. "
+        "Check your token, inference provider (HF_PROVIDER), and model access, "
+        "then restart the backend.\n\n"
+        f"Details: {detail}"
     )

@@ -177,9 +177,9 @@ class _ChatInputBarState extends State<ChatInputBar> {
                 Expanded(
                   child: TextField(
                     controller: widget.controller,
-                    maxLines: 4,
-                    minLines: 1,
+                    maxLines: 1,
                     textCapitalization: TextCapitalization.sentences,
+                    textInputAction: TextInputAction.send,
                     enabled: !widget.isGenerating,
                     decoration: InputDecoration(
                       hintText: widget.strings.askAnything,
@@ -190,7 +190,9 @@ class _ChatInputBarState extends State<ChatInputBar> {
                         vertical: 10,
                       ),
                     ),
-                    onSubmitted: widget.isGenerating ? null : (_) => widget.onSend(),
+                    onSubmitted: widget.isGenerating
+                        ? null
+                        : (_) => widget.onSend(),
                   ),
                 ),
                 Container(

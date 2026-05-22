@@ -30,13 +30,26 @@ app.include_router(router)
 
 @app.on_event("startup")
 def startup():
+    get_settings.cache_clear()
     settings = get_settings()
     hf = HuggingFaceService()
     chroma = ChromaService(hf)
-    seeded = chroma.seed_defaults()
+    seeded = chroma.ensure_core_knowledge()
+    reindexed = 0
+    if hf.is_configured:
+        if chroma.embeddings_need_reindex():
+            reindexed = chroma.reindex_all()
+        added = chroma.ensure_core_knowledge()
+        if added:
+            logger.info("Added %s seed documents to ChromaDB", added)
     logger.info("API ready on %s:%s", settings.api_host, settings.api_port)
     logger.info("Hugging Face configured: %s", hf.is_configured)
-    logger.info("ChromaDB documents: %s (seeded %s)", chroma.count(), seeded)
+    logger.info(
+        "ChromaDB documents: %s (seeded %s, reindexed %s)",
+        chroma.count(),
+        seeded,
+        reindexed,
+    )
 
 
 @app.get("/")

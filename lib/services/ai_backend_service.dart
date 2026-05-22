@@ -26,7 +26,7 @@ class AiBackendService {
     return jsonDecode(response.body) as Map<String, dynamic>;
   }
 
-  Future<({String response, String context, int sources})> chat({
+  Future<({String response, String context, int sources, bool noKnowledge})> chat({
     required String baseUrl,
     required String message,
     required List<AiMessage> history,
@@ -66,6 +66,7 @@ class AiBackendService {
       response: data['response'] as String? ?? '',
       context: data['context_used'] as String? ?? '',
       sources: (data['sources_count'] as num?)?.toInt() ?? 0,
+      noKnowledge: data['no_knowledge'] as bool? ?? false,
     );
   }
 
@@ -94,5 +95,19 @@ class AiBackendService {
     if (response.statusCode != 200) {
       throw AiBackendException('Failed to seed knowledge');
     }
+  }
+
+  Future<int> reindexKnowledge(String baseUrl) async {
+    final uri = Uri.parse('$baseUrl/api/knowledge/reindex');
+    final response = await _client.post(uri).timeout(const Duration(seconds: 120));
+    if (response.statusCode != 200) {
+      final err = jsonDecode(response.body);
+      final detail = err is Map ? err['detail'] : null;
+      throw AiBackendException(
+        detail?.toString() ?? 'Failed to reindex knowledge (${response.statusCode})',
+      );
+    }
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    return (data['reindexed'] as num?)?.toInt() ?? 0;
   }
 }

@@ -82,6 +82,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _reindexKnowledge() async {
+    try {
+      final ai = context.read<AiChatProvider>();
+      final count = await ai.reindexKnowledge();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Rebuilt search index ($count documents)')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString())),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final themeProvider = context.watch<ThemeProvider>();
@@ -189,6 +205,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             style: FilledButton.styleFrom(
                               backgroundColor: AppColors.secondary,
                             ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: ai.backendOnline ? _reindexKnowledge : null,
+                            icon: const Icon(Icons.refresh_rounded),
+                            label: const Text('Rebuild search index'),
                           ),
                         ),
                       ],

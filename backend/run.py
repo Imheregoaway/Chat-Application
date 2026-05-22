@@ -1,8 +1,13 @@
+import os
+from pathlib import Path
+
 import uvicorn
 
-from app.config import get_settings
+from app.config import _BACKEND_DIR, get_settings
 
 if __name__ == "__main__":
+    os.chdir(_BACKEND_DIR)
+    get_settings.cache_clear()
     settings = get_settings()
     uvicorn.run(
         "app.main:app",

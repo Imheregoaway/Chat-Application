@@ -17,6 +17,7 @@ class ChatResponse(BaseModel):
     response: str
     context_used: str = ""
     sources_count: int = 0
+    no_knowledge: bool = False
 
 
 class KnowledgeRequest(BaseModel):

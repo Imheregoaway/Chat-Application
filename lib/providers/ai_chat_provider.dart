@@ -52,10 +52,9 @@ class AiChatProvider extends ChangeNotifier {
   String get sessionTitle => _sessionTitle;
 
   static const suggestedPrompts = [
-    'What is LangGraph used for?',
-    'How does ChromaDB work in this app?',
-    'Explain RAG in simple terms',
-    'Help me brainstorm app ideas',
+    'how to make pasta',
+    'what is today news',
+    'how to make tea',
   ];
 
   void setLocaleCode(String code) {
@@ -193,6 +192,7 @@ class AiChatProvider extends ChangeNotifier {
 
       _lastContext = result.context;
       _lastSources = result.sources;
+      _error = null;
 
       final idx = _messages.indexWhere((m) => m.id == placeholderId);
       if (idx >= 0) {
@@ -238,6 +238,13 @@ class AiChatProvider extends ChangeNotifier {
   Future<void> addKnowledge(String text) async {
     final baseUrl = await _config.getBaseUrl();
     await _backend.addKnowledge(baseUrl: baseUrl, text: text);
+  }
+
+  Future<int> reindexKnowledge() async {
+    final baseUrl = await _config.getBaseUrl();
+    final count = await _backend.reindexKnowledge(baseUrl);
+    await checkBackend();
+    return count;
   }
 
   Future<void> clearChat() async {

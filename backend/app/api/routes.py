@@ -14,17 +14,23 @@ from app.services.huggingface_service import HuggingFaceService
 
 router = APIRouter(prefix="/api")
 
-_hf = HuggingFaceService()
-_chroma = ChromaService(_hf)
+
+def _hf() -> HuggingFaceService:
+    return HuggingFaceService()
+
+
+def _chroma() -> ChromaService:
+    return ChromaService(_hf())
 
 
 @router.get("/health", response_model=HealthResponse)
 def health():
     settings = get_settings()
+    chroma = _chroma()
     return HealthResponse(
         status="ok",
-        huggingface_configured=_hf.is_configured,
-        chroma_documents=_chroma.count(),
+        huggingface_configured=_hf().is_configured,
+        chroma_documents=chroma.count(),
         chat_model=settings.hf_chat_model,
         embedding_model=settings.hf_embedding_model,
         inference_provider=settings.hf_provider,
@@ -47,6 +53,7 @@ def chat(request: ChatRequest):
             response=result["response"],
             context_used=context,
             sources_count=sources,
+            no_knowledge=bool(result.get("no_knowledge", False)),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -55,7 +62,7 @@ def chat(request: ChatRequest):
 @router.post("/knowledge", response_model=KnowledgeResponse)
 def add_knowledge(request: KnowledgeRequest):
     try:
-        doc_id = _chroma.add_document(
+        doc_id = _chroma().add_document(
             request.text,
             metadata={"source": request.source},
         )
@@ -69,5 +76,20 @@ def add_knowledge(request: KnowledgeRequest):
 
 @router.post("/knowledge/seed")
 def seed_knowledge():
-    count = _chroma.seed_defaults()
-    return {"seeded": count, "total": _chroma.count()}
+    chroma = _chroma()
+    count = chroma.ensure_core_knowledge()
+    return {"seeded": count, "total": chroma.count()}
+
+
+@router.post("/knowledge/reindex")
+def reindex_knowledge():
+    """Rebuild all ChromaDB embeddings (fixes demo-mode index after adding HF token)."""
+    hf = _hf()
+    if not hf.is_configured:
+        raise HTTPException(
+            status_code=400,
+            detail="Set HUGGINGFACE_API_KEY in backend/.env before reindexing",
+        )
+    chroma = _chroma()
+    count = chroma.reindex_all()
+    return {"reindexed": count, "total": chroma.count()}

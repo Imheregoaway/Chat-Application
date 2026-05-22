@@ -13,3 +13,4 @@ class AgentState(TypedDict):
     retrieved_context: str
     final_response: str
     locale: str
+    no_knowledge: bool
