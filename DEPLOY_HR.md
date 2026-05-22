@@ -1,4 +1,4 @@
-# Easiest deploy for HR demo (≈30 minutes)
+# Easiest deploy  (≈30 minutes)
 
 Two public links:
 
