@@ -1,5 +1,5 @@
 # AI Chat Application
-
+##
 A full-stack **AI assistant** with a modern mobile/desktop UI and an intelligent backend. Users can chat in natural language, upload custom knowledge, and get answers grounded in indexed content—or general AI replies when appropriate.
 
 Built as a portfolio project to demonstrate **Flutter**, **Python/FastAPI**, **retrieval-augmented generation (RAG)**, and **AI-assisted development with Cursor**.
